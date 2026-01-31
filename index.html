@@ -1,23 +1,30 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mind Map JSON Generator</title>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <title>JSON to MindMap Generator</title>
+
+    <!-- Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lz-string/1.4.4/lz-string.min.js"></script>
+
     <style>
-        /* --- CORE UI SETUP --- */
+        /* --- CORE UI --- */
         body {
-            margin: 0; padding: 0;
-            width: 100vw; height: 100vh;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
             overflow: hidden;
             background-color: #f8f9fa;
-            font-family: 'Roboto', 'Noto Sans', sans-serif;
+            font-family: 'Segoe UI', 'Roboto', 'Helvetica', sans-serif;
             display: flex;
-            flex-direction: column; 
+            flex-direction: column;
         }
 
-        /* --- CONTROL PANEL (Top) --- */
+        /* --- CONTROL PANEL --- */
         #control-panel {
             background-color: #fff;
             padding: 15px;
@@ -25,476 +32,522 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             z-index: 100;
-            max-height: 40vh;
+            max-height: 45vh;
             overflow-y: auto;
+            transition: transform 0.3s ease;
         }
 
-        #json-input, #html-output {
+        /* Hides panel when in Embed Mode */
+        body.embed-mode #control-panel {
+            display: none !important;
+        }
+
+        /* --- HIDE EDIT BUTTON --- */
+        #edit-toggle {
+            display: none !important;
+        }
+
+        .input-group {
+            margin-bottom: 10px;
+        }
+
+        .input-group label {
+            display: block;
+            font-weight: 600;
+            font-size: 13px;
+            color: #333;
+            margin-bottom: 4px;
+        }
+
+        textarea,
+        input[type="text"] {
             width: 100%;
-            min-height: 80px;
-            padding: 10px;
+            padding: 8px;
             border: 1px solid #ccc;
             border-radius: 4px;
             box-sizing: border-box;
-            font-family: monospace;
-            font-size: 12px;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            background: #fafafa;
+        }
+
+        textarea:focus,
+        input:focus {
+            outline: 2px solid #1a73e8;
+            border-color: transparent;
+        }
+
+        #json-input {
+            min-height: 80px;
             resize: vertical;
         }
 
-        .button-group { display: flex; gap: 10px; }
-        #generate-button { flex-grow: 1; }
+        /* OUTPUT BOXES (Hidden by default) */
+        .output-section {
+            display: none;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
 
-        button {
+        .output-row {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 8px;
+        }
+
+        .output-row button {
+            padding: 8px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        #generate-button {
+            width: 100%;
             background-color: #1a73e8;
             color: white;
-            padding: 10px 15px;
+            padding: 10px;
             border: none;
             border-radius: 4px;
+            font-weight: 600;
             cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            transition: background-color 0.2s;
         }
-        button:hover { background-color: #0c61d5; }
-        
-        #html-output-section {
-            margin-top: 15px; padding-top: 10px;
-            border-top: 1px solid #eee; display: none;
-        }
-        #copy-button { width: 100%; background-color: #34a853; }
-        #copy-button:hover { background-color: #2d8e47; }
 
-        /* --- GRAPH CONTAINER --- */
+        #generate-button:hover {
+            background-color: #1557b0;
+        }
+
+        .copy-btn {
+            background-color: #f1f3f4;
+            color: #333;
+            border: 1px solid #dadce0;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .copy-btn:hover {
+            background-color: #e8eaed;
+        }
+
+        /* --- LOADING SPINNER --- */
+        #loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #1a73e8;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* --- GRAPH --- */
         #mindmap {
-            flex-grow: 1; 
+            flex-grow: 1;
             position: relative;
             overflow: hidden;
             background-color: #f8f9fa;
             width: 100%;
             height: 100%;
+            touch-action: none;
         }
 
-        /* --- GRAPH STYLES --- */
         .controls {
-            position: absolute; bottom: 20px; right: 20px;
-            display: flex; flex-direction: column; gap: 10px;
-            z-index: 110; 
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 110;
         }
-        .btn-zoom {
-            width: 40px; height: 40px; border-radius: 50%; background: white;
-            color: #555; border: 1px solid #ddd; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            font-size: 20px; display: flex; align-items: center; justify-content: center;
-            padding: 0;
-        }
-        .btn-zoom:hover { color: #1a73e8; border-color: #1a73e8; }
 
-        .node { cursor: pointer; }
+        .btn-zoom {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            color: #555;
+            border: 1px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        /* NODES */
         .node rect {
-            fill: #fff; stroke: #e0e0e0; stroke-width: 1.5px;
-            rx: 20px; ry: 20px; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.05));
-            transition: all 0.5s ease;
+            fill: #fff;
+            stroke: #e0e0e0;
+            stroke-width: 1.5px;
+            rx: 6px;
+            ry: 6px;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.05));
+            transition: all 0.3s ease;
+            will-change: transform;
         }
-        .node:hover rect { stroke: #1a73e8; filter: drop-shadow(0 5px 8px rgba(0,0,0,0.1)); }
+
+        .node:hover rect {
+            stroke: #1a73e8;
+            stroke-width: 2px;
+        }
+
         .node text {
-            font-size: 14px; fill: #202124; font-weight: 500; pointer-events: none;
-            font-family: sans-serif;
+            font-size: 14px;
+            fill: #202124;
+            font-weight: 500;
+            pointer-events: none;
+            font-family: 'Segoe UI', sans-serif;
         }
-        .link { fill: none; stroke: #bbc1c9; stroke-width: 1.5px; opacity: 0.8; }
-        .indicator-circle { fill: #fff; stroke: #1a73e8; stroke-width: 1.5px; }
+
+        .link {
+            fill: none;
+            stroke: #bbc1c9;
+            stroke-width: 1.5px;
+            opacity: 0.8;
+        }
+
+        .indicator-circle {
+            fill: #fff;
+            stroke: #1a73e8;
+            stroke-width: 1.5px;
+        }
+
         .indicator-text {
-            font-size: 14px; fill: #1a73e8; font-weight: bold;
-            text-anchor: middle; alignment-baseline: middle; pointer-events: none;
+            font-size: 14px;
+            fill: #1a73e8;
+            font-weight: bold;
+            text-anchor: middle;
+            alignment-baseline: middle;
+            pointer-events: none;
         }
-        .node.concept-force rect { stroke: #8ab4f8; background-color: #f1f7ff; }
-        .node.concept-pressure rect { stroke: #f6aea9; background-color: #fce8e6; }
     </style>
 </head>
+
 <body>
 
+    <div id="loading-overlay">
+        <div class="spinner"></div>
+        <p style="margin-top:10px; font-weight:600; color:#555;">Generating Map...</p>
+    </div>
+
     <div id="control-panel">
-        <label for="json-input"><strong>1. Paste Mind Map JSON:</strong></label>
-        <textarea id="json-input" spellcheck="false"></textarea>
-        
-        <div class="button-group">
-            <button id="generate-button" onclick="generateMindMap()">Generate Map</button>
+        <div class="input-group">
+            <label for="json-input">1. Mind Map JSON Data:</label>
+            <textarea id="json-input" placeholder="Paste your JSON here..." spellcheck="false"></textarea>
         </div>
-        <p id="error-message" style="color: #d93025; font-size: 13px; margin: 5px 0 0 0;"></p>
-        
-        <div id="html-output-section">
-            <label><strong>2. Export Standalone HTML:</strong></label>
-            <textarea id="html-output" readonly></textarea>
-            <button id="copy-button" onclick="copyHtmlCode()">Copy HTML Code</button>
+
+        <button id="generate-button" onclick="generateMindMap()">Generate Mind Map</button>
+        <div id="error-message" style="color: #d93025; font-size: 12px; margin-top: 5px; font-weight:bold;"></div>
+
+        <div class="output-section" id="outputs">
+            <div class="input-group">
+                <label>2. View-Only Share Link:</label>
+                <div class="output-row">
+                    <input id="share-link" readonly type="text">
+                    <button class="copy-btn" onclick="copyText('share-link')">Copy</button>
+                    <button class="copy-btn"
+                        onclick="window.open(document.getElementById('share-link').value, '_blank')">Open</button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>3. Embed Code (Iframe):</label>
+                <div class="output-row">
+                    <input id="embed-code" readonly type="text">
+                    <button class="copy-btn" onclick="copyText('embed-code')">Copy</button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <label>4. Standalone HTML File:</label>
+                <div class="output-row">
+                    <textarea id="html-output" readonly style="height: 50px;"></textarea>
+                </div>
+                <button class="copy-btn" onclick="copyText('html-output')" style="width:100%">Copy HTML Code</button>
+            </div>
         </div>
     </div>
 
     <div id="mindmap">
         <div class="controls">
-            <button class="btn-zoom" onclick="zoomIn()" title="Zoom In">+</button>
-            <button class="btn-zoom" onclick="zoomOut()" title="Zoom Out">-</button>
-            <button class="btn-zoom" onclick="fitToScreen()" title="Reset View">⛶</button>
+            <button class="btn-zoom" onclick="zoomIn()">+</button>
+            <button class="btn-zoom" onclick="zoomOut()">-</button>
+            <button class="btn-zoom" onclick="fitToScreen()">&#9974;</button>
         </div>
     </div>
 
-<script>
-// --- GLOBAL VARIABLES ---
-let root;
-let i = 0;
-let duration = 750;
-let currentTreeData = {}; 
-let svg, g, zoom, treemap;
+    <script>
+        let root, svg, g, zoom, treemap;
+        let i = 0, duration = 500;
 
-function initializeD3() {
-    d3.select("#mindmap").select("svg").remove();
-    const mapContainer = document.getElementById('mindmap');
-    // Ensure we get the actual bounding box, even on mobile with scrollbars
-    const rect = mapContainer.getBoundingClientRect();
-    const width = rect.width;
-    const height = rect.height;
-
-    svg = d3.select("#mindmap").append("svg")
-        .attr("width", "100%")
-        .attr("height", "100%")
-        .attr("viewBox", `0 0 ${width} ${height}`)
-        .call(d3.zoom().on("zoom", null)) // Prevent double initialization
-        .on("dblclick.zoom", null);
-
-    g = svg.append("g");
-
-    zoom = d3.zoom()
-        .scaleExtent([0.1, 4])
-        .on("zoom", (event) => {
-            g.attr("transform", event.transform);
-        });
-    svg.call(zoom);
-
-    const nodeHeight = 60; 
-    const nodeWidth = 250; 
-    treemap = d3.tree().nodeSize([nodeHeight, nodeWidth]);
-}
-
-function generateMindMap() {
-    const jsonInput = document.getElementById('json-input');
-    const errorMessage = document.getElementById('error-message');
-    const htmlOutputSection = document.getElementById('html-output-section');
-    
-    errorMessage.textContent = '';
-    let treeData;
-
-    try {
-        const rawValue = jsonInput.value.trim();
-        if(!rawValue) throw new Error("Input is empty");
-        treeData = JSON.parse(rawValue);
-    } catch (e) {
-        errorMessage.textContent = "Invalid JSON: " + e.message;
-        htmlOutputSection.style.display = 'none';
-        return;
-    }
-
-    if (!treeData || (!treeData.name && !treeData.children)) {
-         errorMessage.textContent = "JSON error: Root object must have 'name' or 'children'.";
-         htmlOutputSection.style.display = 'none';
-         return;
-    }
-    
-    currentTreeData = treeData;
-    initializeD3(); 
-
-    root = d3.hierarchy(treeData, d => d.children);
-    root.x0 = 0; 
-    root.y0 = 0;
-
-    function collapse(d) {
-        if(d.children) {
-            d._children = d.children;
-            d._children.forEach(collapse);
-            d.children = null;
+        function showLoading(show) {
+            document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none';
         }
-    }
-    if(root.children) {
-        root.children.forEach(child => {
-            if(child.children) child.children.forEach(collapse);
-        });
-    }
-    
-    update(root);
-    setTimeout(() => { fitToScreen(); }, 200);
 
-    htmlOutputSection.style.display = 'block';
-    generateHtmlOutput(currentTreeData);
-}
+        function copyText(id) {
+            const el = document.getElementById(id);
+            el.select();
+            document.execCommand('copy');
+            alert("Copied to clipboard!");
+        }
 
-function update(source) {
-    const treeData = treemap(root);
-    const nodes = treeData.descendants();
-    const links = treeData.descendants().slice(1);
+        function generateMindMap() {
+            showLoading(true);
+            const jsonInput = document.getElementById('json-input');
+            const errorMsg = document.getElementById('error-message');
+            const outputDiv = document.getElementById('outputs');
 
-    nodes.forEach(d => { d.y = d.depth * 280; });
+            errorMsg.textContent = '';
+            outputDiv.style.display = 'none';
 
-    const node = g.selectAll('g.node')
-        .data(nodes, d => d.id || (d.id = ++i));
+            setTimeout(() => {
+                try {
+                    const rawVal = jsonInput.value.trim();
+                    if (!rawVal) throw new Error("Please enter JSON data.");
+                    let data;
+                    try { data = JSON.parse(rawVal); } catch (e) { throw new Error("Invalid JSON format."); }
 
-    const nodeEnter = node.enter().append('g')
-        .attr('class', d => `node ${d.data.type || ''}`)
-        .attr('transform', d => `translate(${source.y0},${source.x0})`)
-        .on('click', click);
+                    renderGraph(data);
+                    generateShareLinks(rawVal, data);
+                    outputDiv.style.display = 'block';
 
-    nodeEnter.append('text')
-        .attr("dy", ".35em").attr("x", 0).attr("text-anchor", "middle").text(d => d.data.name);
+                } catch (e) {
+                    errorMsg.textContent = e.message;
+                } finally {
+                    showLoading(false);
+                }
+            }, 100);
+        }
 
-    nodeEnter.insert("rect", "text")
-        .each(function(d) {
-            const textLen = d.data.name.length; 
-            const estWidth = Math.max(120, textLen * 8 + 40); 
-            d3.select(this).attr("width", estWidth).attr("height", 40)
-                .attr("x", -estWidth / 2).attr("y", -20).attr("rx", 20).attr("ry", 20);
-        });
+        function generateShareLinks(jsonString, dataObj) {
+            const compressed = LZString.compressToEncodedURIComponent(jsonString);
+            const baseUrl = window.location.href.split('#')[0];
 
-    const indicators = nodeEnter.append("g")
-        .attr("class", "indicator").style("opacity", 0);
+            const permLink = `${baseUrl}#map=${compressed}&embed=true`;
+            document.getElementById('share-link').value = permLink;
 
-    indicators.append("circle").attr("class", "indicator-circle").attr("r", 9)
-        .attr("cx", d => (Math.max(120, d.data.name.length * 8 + 40)/2));
+            const iframeCode = `<iframe src="${permLink}" width="100%" height="600px" style="border:1px solid #ddd; border-radius:4px;"></iframe>`;
+            document.getElementById('embed-code').value = iframeCode;
 
-    indicators.append("text").attr("class", "indicator-text").attr("dy", 1)
-        .attr("dx", d => (Math.max(120, d.data.name.length * 8 + 40)/2))
-        .text(d => d.children ? "−" : "+");
+            generateHtmlOutput(dataObj);
+        }
 
-    const nodeUpdate = node.merge(nodeEnter).transition().duration(duration)
-        .attr('transform', d => `translate(${d.y},${d.x})`);
+        function renderGraph(data) {
+            d3.select("#mindmap").select("svg").remove();
+            const container = document.getElementById('mindmap');
+            const w = container.clientWidth;
+            const h = container.clientHeight;
 
-    nodeUpdate.select(".indicator").style("opacity", d => (d.children || d._children) ? 1 : 0);
-    nodeUpdate.select(".indicator-text").text(d => d.children ? "−" : "+");
+            svg = d3.select("#mindmap").append("svg")
+                .attr("width", "100%").attr("height", "100%")
+                .attr("viewBox", `0 0 ${w} ${h}`)
+                .call(d3.zoom().on("zoom", null));
 
-    const nodeExit = node.exit().transition().duration(duration)
-        .attr('transform', d => `translate(${source.y},${source.x})`).remove();
+            g = svg.append("g");
+            zoom = d3.zoom().scaleExtent([0.1, 3]).on("zoom", (e) => g.attr("transform", e.transform));
+            svg.call(zoom);
 
-    const link = g.selectAll('path.link').data(links, d => d.id);
-    const linkEnter = link.enter().insert('path', "g").attr("class", "link")
-        .attr('d', d => { const o = {x: source.x0, y: source.y0}; return diagonal(o, o); });
+            treemap = d3.tree().nodeSize([60, 220]);
+            root = d3.hierarchy(data, d => d.children);
+            root.x0 = 0; root.y0 = 0;
 
-    link.merge(linkEnter).transition().duration(duration).attr('d', d => diagonal(d, d.parent));
-    link.exit().transition().duration(duration).attr('d', d => { const o = {x: source.x, y: source.y}; return diagonal(o, o); }).remove();
+            if (root.children) {
+                root.children.forEach(collapse);
+            }
 
-    nodes.forEach(d => { d.x0 = d.x; d.y0 = d.y; });
-    
-    function diagonal(s, d) {
-        return `M ${s.y} ${s.x} C ${(s.y + d.y) / 2} ${s.x}, ${(s.y + d.y) / 2} ${d.x}, ${d.y} ${d.x}`;
-    }
-}
+            update(root);
+            setTimeout(() => fitToScreen(), 200);
+        }
 
-function click(event, d) {
-    if (d.children) {
-        d._children = d.children; d.children = null;
-    } else {
-        d.children = d._children; d._children = null;
-    }
-    update(d);
-    
-    // IMPORTANT: Wait slightly for the update transition to register the new coordinates, then center
-    centerNode(d);
-}
+        function collapse(d) {
+            if (d.children) {
+                d._children = d.children;
+                d._children.forEach(collapse);
+                d.children = null;
+            }
+        }
 
-// --- FIXED CENTER FUNCTION FOR MOBILE ---
-function centerNode(source) {
-    if (!svg) return;
-    
-    // 1. Get current zoom scale
-    const t = d3.zoomTransform(svg.node());
-    const scale = t.k;
-    
-    // 2. Get actual container dimensions
-    const mapContainer = document.getElementById('mindmap');
-    const w = mapContainer.clientWidth;
-    const h = mapContainer.clientHeight;
+        function update(source) {
+            const treeData = treemap(root);
+            const nodes = treeData.descendants();
+            const links = treeData.descendants().slice(1);
+            nodes.forEach(d => { d.y = d.depth * 250; });
 
-    // 3. Define Offsets
-    // D3 Tree: x is vertical, y is horizontal
-    // We want to center 'y' (vertical screen pos) and 'x' (horizontal screen pos)
-    
-    let x, y;
-    
-    // Is Mobile? (Small width)
-    if (w < 600) {
-        // MOBILE LOGIC:
-        // Center vertically (h/2)
-        // Offset horizontally to the LEFT (w/5) so children have room on the right
-        x = -source.y * scale + (w / 4); 
-        y = -source.x * scale + (h / 2);
-    } else {
-        // DESKTOP LOGIC:
-        // Center vertically (h/2)
-        // Offset horizontally to left-third (w/3)
-        x = -source.y * scale + (w / 3);
-        y = -source.x * scale + (h / 2);
-    }
+            const node = g.selectAll('g.node').data(nodes, d => d.id || (d.id = ++i));
+            const nodeEnter = node.enter().append('g').attr('class', 'node')
+                .attr('transform', d => `translate(${source.y0},${source.x0})`)
+                .on('click', click);
 
-    // 4. Smooth Transition
-    svg.transition().duration(750)
-        .call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
-}
+            const getName = (d) => d.data.name || "Unknown";
 
-function fitToScreen() {
-    if (!svg || !root) return;
-    const mapContainer = document.getElementById('mindmap');
-    const w = mapContainer.clientWidth;
-    const h = mapContainer.clientHeight;
-    // Initial view: slightly left of center to allow growth
-    const t = d3.zoomIdentity.translate(w/6, h/2).scale(1);
-    svg.transition().duration(750).call(zoom.transform, t);
-}
+            nodeEnter.append('text').attr("dy", ".35em").attr("text-anchor", "middle").text(d => getName(d));
 
-function zoomIn() { if (svg) svg.transition().call(zoom.scaleBy, 1.3); }
-function zoomOut() { if (svg) svg.transition().call(zoom.scaleBy, 0.7); }
+            nodeEnter.insert('rect', 'text').each(function (d) {
+                const width = Math.max(100, getName(d).length * 8 + 30);
+                d3.select(this).attr("width", width).attr("height", 40)
+                    .attr("x", -width / 2).attr("y", -20).attr("rx", 6).attr("ry", 6);
+            });
 
-window.addEventListener('resize', () => {
-    if (svg) {
-        const mapContainer = document.getElementById('mindmap');
-        svg.attr("viewBox", `0 0 ${mapContainer.clientWidth} ${mapContainer.clientHeight}`);
-    }
-});
+            const indicators = nodeEnter.append("g").attr("class", "ind-group").style("opacity", 0);
+            indicators.append("circle").attr("class", "indicator-circle").attr("r", 8)
+                .attr("cx", d => (Math.max(100, getName(d).length * 8 + 30) / 2));
+            indicators.append("text").attr("class", "indicator-text").attr("dy", 1)
+                .attr("dx", d => (Math.max(100, getName(d).length * 8 + 30) / 2)).text(d => d.children ? "-" : "+");
 
-// --- HTML GENERATOR (Includes Mobile Fix) ---
-function generateHtmlOutput(data) {
-    const jsonString = JSON.stringify(data, null, 2);
-    
-    // Injecting the EXACT same mobile-optimized centerNode logic into the output string
-    const htmlContent = `<!DOCTYPE html>
+            const nodeUpdate = node.merge(nodeEnter).transition().duration(duration)
+                .attr('transform', d => `translate(${d.y},${d.x})`);
+
+            nodeUpdate.select(".ind-group").style("opacity", d => (d.children || d._children) ? 1 : 0);
+            nodeUpdate.select(".indicator-text").text(d => d.children ? "-" : "+");
+
+            const nodeExit = node.exit().transition().duration(duration)
+                .attr('transform', d => `translate(${source.y},${source.x})`).remove();
+
+            const link = g.selectAll('path.link').data(links, d => d.id);
+            const linkEnter = link.enter().insert('path', "g").attr("class", "link")
+                .attr('d', d => { const o = { x: source.x0, y: source.y0 }; return diagonal(o, o); });
+            link.merge(linkEnter).transition().duration(duration).attr('d', d => diagonal(d, d.parent));
+            link.exit().transition().duration(duration).remove();
+
+            nodes.forEach(d => { d.x0 = d.x; d.y0 = d.y; });
+        }
+
+        function diagonal(s, d) { return `M ${s.y} ${s.x} C ${(s.y + d.y) / 2} ${s.x}, ${(s.y + d.y) / 2} ${d.x}, ${d.y} ${d.x}`; }
+
+        function click(e, d) {
+            if (d.children) { d._children = d.children; d.children = null; }
+            else { d.children = d._children; d._children = null; }
+            update(d); centerNode(d);
+        }
+
+        function centerNode(source) {
+            const t = d3.zoomTransform(svg.node());
+            const w = document.getElementById('mindmap').clientWidth;
+            const h = document.getElementById('mindmap').clientHeight;
+            const x = -source.y * t.k + (w < 600 ? w / 4 : w / 3);
+            const y = -source.x * t.k + h / 2;
+            svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(t.k));
+        }
+
+        function fitToScreen() {
+            const w = document.getElementById('mindmap').clientWidth;
+            const h = document.getElementById('mindmap').clientHeight;
+            svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(w / 6, h / 2));
+        }
+
+        function zoomIn() { svg.transition().call(zoom.scaleBy, 1.3); }
+        function zoomOut() { svg.transition().call(zoom.scaleBy, 0.7); }
+
+        function generateHtmlOutput(data) {
+            const jsonStr = JSON.stringify(data, null, 2);
+            const html = `<!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>${data.name || 'Mind Map'}</title>
-    <script src="https://d3js.org/d3.v7.min.js"><\/script>
-    <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #f8f9fa; width: 100vw; height: 100vh; }
-        .node rect { fill: #fff; stroke: #ccc; stroke-width: 1.5px; rx: 20px; ry: 20px; transition: all 0.5s ease; }
-        .node:hover rect { stroke: #1a73e8; }
-        .node text { font-size: 14px; pointer-events: none; }
-        .link { fill: none; stroke: #ccc; stroke-width: 1.5px; opacity: 0.8; }
-        .controls { position: absolute; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 100; }
-        .btn { width: 45px; height: 45px; background: white; border: 1px solid #ccc; font-size: 20px; cursor: pointer; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;}
-        .node.concept-force rect { stroke: #8ab4f8; background-color: #f1f7ff; }
-        .node.concept-pressure rect { stroke: #f6aea9; background-color: #fce8e6; }
-    </style>
-</head>
-<body>
-    <div class="controls">
-        <button class="btn" onclick="zoomIn()">+</button>
-        <button class="btn" onclick="zoomOut()">-</button>
-        <button class="btn" onclick="fitToScreen()">⛶</button>
-    </div>
-    <div id="graph" style="width:100%; height:100%;"></div>
-
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>MindMap</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"><\/script>
+<style>body{margin:0;overflow:hidden;background:#f8f9fa;font-family:sans-serif}.node rect{fill:#fff;stroke:#ccc;stroke-width:1.5px;rx:6px;transition:all 0.3s}.node:hover rect{stroke:#1a73e8;stroke-width:2px}.node text{font-size:14px;pointer-events:none}.link{fill:none;stroke:#ccc;stroke-width:1.5px}.controls{position:absolute;bottom:20px;right:20px;display:flex;flex-direction:column;gap:5px}.btn{width:35px;height:35px;background:#fff;border:1px solid #ccc;border-radius:50%;cursor:pointer;font-size:18px}</style></head>
+<body><div class="controls"><button class="btn" onclick="z(1.3)">+</button><button class="btn" onclick="z(0.7)">-</button><button class="btn" onclick="fit()">⛶</button></div><div id="g" style="width:100vw;height:100vh"></div>
 <script>
-    const data = ${jsonString};
-    let i = 0, duration = 750, root;
-    
-    // Setup SVG
-    const svg = d3.select("#graph").append("svg").attr("width", "100%").attr("height", "100%");
-    const g = svg.append("g");
-    const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (e) => g.attr("transform", e.transform));
-    svg.call(zoom);
-    
-    const treemap = d3.tree().nodeSize([60, 250]);
-    root = d3.hierarchy(data, d => d.children);
-    root.x0 = 0; root.y0 = 0;
-
-    // Initial collapse
-    if(root.children) root.children.forEach(child => { if(child.children) child.children.forEach(collapse); });
-    function collapse(d) { if(d.children) { d._children = d.children; d._children.forEach(collapse); d.children = null; } }
-
-    update(root);
-    // Initial center delay
-    setTimeout(() => fitToScreen(), 100);
-
-    function update(source) {
-        const treeData = treemap(root);
-        const nodes = treeData.descendants();
-        const links = treeData.descendants().slice(1);
-        
-        nodes.forEach(d => { d.y = d.depth * 280; });
-
-        const node = g.selectAll('g.node').data(nodes, d => d.id || (d.id = ++i));
-        const nodeEnter = node.enter().append('g').attr('class', d => \`node \${d.data.type || ''}\`)
-            .attr('transform', d => \`translate(\${source.y0},\${source.x0})\`).on('click', click);
-            
-        nodeEnter.append('rect').each(function(d) {
-            const w = Math.max(120, d.data.name.length * 8 + 40);
-            d3.select(this).attr("width", w).attr("height", 40).attr("x", -w/2).attr("y", -20);
-        });
-        nodeEnter.append('text').attr("dy", ".35em").attr("text-anchor", "middle").text(d => d.data.name);
-        nodeEnter.append("circle").attr("r", 9).attr("cx", d => (Math.max(120, d.data.name.length*8+40)/2)).attr("fill", "#1a73e8").style("opacity", 0).attr("class", "ind");
-        
-        const nodeUpdate = node.merge(nodeEnter).transition().duration(duration).attr('transform', d => \`translate(\${d.y},\${d.x})\`);
-        nodeUpdate.select(".ind").style("opacity", d => (d.children || d._children) ? 1 : 0).attr("fill", d => d.children ? "#fff" : "#1a73e8").attr("stroke", "#1a73e8");
-
-        node.exit().transition().duration(duration).attr('transform', d => \`translate(\${source.y},\${source.x})\`).remove();
-
-        const link = g.selectAll('path.link').data(links, d => d.id);
-        const linkEnter = link.enter().insert('path', "g").attr("class", "link").attr('d', d => { const o = {x: source.x0, y: source.y0}; return diagonal(o, o); });
-        link.merge(linkEnter).transition().duration(duration).attr('d', d => diagonal(d, d.parent));
-        link.exit().transition().duration(duration).attr('d', d => { const o = {x: source.x, y: source.y}; return diagonal(o, o); }).remove();
-        
-        nodes.forEach(d => { d.x0 = d.x; d.y0 = d.y; });
-    }
-
-    function diagonal(s, d) { return \`M \${s.y} \${s.x} C \${(s.y + d.y) / 2} \${s.x}, \${(s.y + d.y) / 2} \${d.x}, \${d.y} \${d.x}\`; }
-
-    function click(event, d) {
-        if (d.children) { d._children = d.children; d.children = null; } 
-        else { d.children = d._children; d._children = null; }
-        update(d);
-        centerNode(d);
-    }
-    
-    // --- MOBILE OPTIMIZED CENTER NODE ---
-    function centerNode(source) {
-        const t = d3.zoomTransform(svg.node());
-        const w = window.innerWidth;
-        const h = window.innerHeight;
-        let x, y;
-        
-        if (w < 600) {
-            x = -source.y * t.k + (w / 4); // Mobile: Less offset to left
-            y = -source.x * t.k + (h / 2);
-        } else {
-            x = -source.y * t.k + (w / 3); // Desktop: More offset to left
-            y = -source.x * t.k + (h / 2);
+const d=${jsonStr};
+let root,i=0,svg=d3.select("#g").append("svg").attr("width","100%").attr("height","100%"),g=svg.append("g"),z=s=>svg.transition().call(zoom.scaleBy,s);
+const zoom=d3.zoom().scaleExtent([0.1,3]).on("zoom",e=>g.attr("transform",e.transform));svg.call(zoom);
+const tree=d3.tree().nodeSize([60,220]);
+root=d3.hierarchy(d,x=>x.children);root.x0=0;root.y0=0;
+if(root.children)root.children.forEach(collapse);
+function collapse(d){if(d.children){d._children=d.children;d._children.forEach(collapse);d.children=null}}
+update(root); setTimeout(fit,100);
+function update(s){
+  const t=tree(root),n=t.descendants(),l=t.descendants().slice(1);
+  n.forEach(d=>d.y=d.depth*250);
+  const node=g.selectAll(".n").data(n,d=>d.id||(d.id=++i));
+  const ent=node.enter().append("g").attr("class","n").attr("transform",d=>\`translate(\${s.y0},\${s.x0})\`).on("click",click);
+  ent.append("rect").each(function(d){const w=Math.max(100,(d.data.name||"").length*8+30);d3.select(this).attr("width",w).attr("height",40).attr("x",-w/2).attr("y",-20)});
+  ent.append("text").attr("dy",".35em").attr("text-anchor","middle").text(d=>d.data.name);
+  ent.append("circle").attr("r",8).attr("fill","#1a73e8").attr("cx",d=>(Math.max(100,(d.data.name||"").length*8+30)/2)).style("opacity",0).attr("class","ind");
+  const upd=node.merge(ent).transition().duration(500).attr("transform",d=>\`translate(\${d.y},\${d.x})\`);
+  upd.select(".ind").style("opacity",d=>(d.children||d._children)?1:0).attr("fill",d=>d.children?"#fff":"#1a73e8").attr("stroke","#1a73e8");
+  node.exit().transition().duration(500).attr("transform",d=>\`translate(\${s.y},\${s.x})\`).remove();
+  const link=g.selectAll(".l").data(l,d=>d.id);
+  link.enter().insert("path","g").attr("class","l").attr("d",d=>{const o={x:s.x0,y:s.y0};return dia(o,o)})
+    .merge(link).transition().duration(500).attr("d",d=>dia(d,d.parent));
+  link.exit().transition().duration(500).remove();
+  n.forEach(d=>{d.x0=d.x;d.y0=d.y});
+}
+function dia(s,d){return \`M \${s.y} \${s.x} C \${(s.y+d.y)/2} \${s.x}, \${(s.y+d.y)/2} \${d.x}, \${d.y} \${d.x}\`}
+function click(e,d){if(d.children){d._children=d.children;d.children=null}else{d.children=d._children;d._children=null}update(d);const tr=d3.zoomTransform(svg.node());svg.transition().duration(750).call(zoom.transform,d3.zoomIdentity.translate(-d.y*tr.k+window.innerWidth/3,-d.x*tr.k+window.innerHeight/2).scale(tr.k))}
+function fit(){svg.transition().duration(750).call(zoom.transform,d3.zoomIdentity.translate(window.innerWidth/6,window.innerHeight/2))}
+window.onresize=()=>svg.attr("width","100%").attr("height","100%");
+<\/script></body></html>`;
+            document.getElementById('html-output').value = html;
         }
-        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(t.k));
-    }
 
-    function fitToScreen() {
-        const w = window.innerWidth, h = window.innerHeight;
-        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(w/6, h/2)); 
-    }
-    
-    function zoomIn() { svg.transition().call(zoom.scaleBy, 1.3); }
-    function zoomOut() { svg.transition().call(zoom.scaleBy, 0.7); }
-    window.onresize = () => svg.attr("width", "100%").attr("height", "100%");
-<\/script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const example = { "name": "Central Topic", "children": [{ "name": "Branch A" }, { "name": "Branch B" }] };
+            const jsonBox = document.getElementById('json-input');
+            const hash = window.location.hash;
+
+            if (hash.includes("embed=true")) {
+                document.body.classList.add('embed-mode');
+            }
+
+            if (hash.includes("#map=")) {
+                try {
+                    const compressed = hash.split("map=")[1].split("&")[0];
+                    const decompressed = LZString.decompressFromEncodedURIComponent(compressed);
+
+                    if (decompressed) {
+                        jsonBox.value = decompressed;
+                        let checkLibs = setInterval(() => {
+                            if (typeof d3 !== 'undefined') {
+                                clearInterval(checkLibs);
+                                generateMindMap();
+                            }
+                        }, 100);
+                        return;
+                    }
+                } catch (e) { console.error("Link Error", e); }
+            }
+            jsonBox.value = JSON.stringify(example, null, 2);
+        });
+
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (svg) {
+                    const c = document.getElementById('mindmap');
+                    svg.attr("viewBox", `0 0 ${c.clientWidth} ${c.clientHeight}`);
+                }
+            }, 100);
+        });
+    </script>
 </body>
-</html>`;
-    document.getElementById('html-output').value = htmlContent;
-}
 
-function copyHtmlCode() {
-    const textarea = document.getElementById('html-output');
-    if (navigator.clipboard) {
-        navigator.clipboard.writeText(textarea.value).then(() => alert("Copied!")).catch(() => fallbackCopy(textarea));
-    } else { fallbackCopy(textarea); }
-}
-function fallbackCopy(textarea) {
-    textarea.select(); document.execCommand('copy'); alert("Copied!");
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-    const exampleData = { "name": "Start Here", "children": [{ "name": "Item 1", "children": [{"name": "Details..."}] }, { "name": "Item 2" }] };
-    document.getElementById('json-input').value = JSON.stringify(exampleData, null, 2);
-    generateMindMap(); 
-});
-</script>
-</body>
 </html>
