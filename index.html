@@ -348,12 +348,22 @@
         }
 
         function generateShareLinks(jsonString, dataObj) {
+            // 1. Compress JSON safely for URL
             const compressed = LZString.compressToEncodedURIComponent(jsonString);
-            const baseUrl = window.location.href.split('#')[0];
 
+            // 2. Build Clean Base URL (strips index.html and existing hashes/queries)
+            let baseUrl = window.location.origin + window.location.pathname;
+            if (baseUrl.endsWith('index.html')) {
+                baseUrl = baseUrl.replace('index.html', '');
+            }
+            // Ensure trailing slash for uniformity
+            if (!baseUrl.endsWith('/')) baseUrl += '/';
+
+            // 3. Create Permanent View Link
             const permLink = `${baseUrl}#map=${compressed}&embed=true`;
             document.getElementById('share-link').value = permLink;
 
+            // 4. Create Embed Code
             const iframeCode = `<iframe src="${permLink}" width="100%" height="600px" style="border:1px solid #ddd; border-radius:4px;"></iframe>`;
             document.getElementById('embed-code').value = iframeCode;
 
